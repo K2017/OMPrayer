@@ -14,31 +14,56 @@ use vec::*;
 
 use config::UserConfig;
 use geom::*;
+use iced::{button, Application, Button, Column, Command, Element, Settings, Text};
 use ray::Ray;
-use texture::Texture as _;
 
-fn trace(r: &Ray, scene: &Scene, depth: usize) -> Vec3 {
-    if depth == 0 {
-        return glm::zero();
+#[derive(Default)]
+struct AppModel {
+    chooser_button: button::State,
+    tracer_button: button::State,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Message {
+    ChooserPressed,
+    TracePressed,
+}
+
+impl Application for AppModel {
+    type Message = Message;
+
+    fn new() -> (Self, Command<Message>) {
+        (
+            Self {
+                chooser_button: button::State::new(),
+                tracer_button: button::State::new(),
+            },
+            Command::none(),
+        )
     }
-    if let Some(TraceResult { material, hit }) = scene.trace(r, 0.001, std::f32::MAX) {
-        let RayHit { normal, uv, .. } = hit;
-        let w0 = -r.direction;
-        let (bounce, pdf) = material.bounce(&w0, &hit);
-        let incident = trace(&bounce, scene, depth - 1);
-        let (brdf, ks) = material.brdf(&w0, &bounce.direction, &normal, uv);
-        let specular = brdf / pdf;
-        let diffuse = {
-            let lambert = material.albedo.sample(uv) / glm::pi::<f32>();
-            let kd = (glm::vec3(1.0, 1.0, 1.0) - ks) * (1.0 - material.metalness.sample(uv));
-            let pdf = glm::one_over_two_pi::<f32>();
-            kd.component_mul(&lambert) / pdf
-        };
-        let costheta = f32::max(glm::dot(&normal, &bounce.direction), 0.0);
-        (diffuse + specular).component_mul(&incident) * costheta + material.emission.sample(uv)
-    } else {
-        let dir = r.direction.normalize();
-        scene.environment.sample(Sphere::uv_at_dir(&dir))
+
+    fn title(&self) -> String {
+        String::from("Prayer")
+    }
+
+    fn update(&mut self, message: Message) -> Command<Message> {
+        match message {
+            Message::ChooserPressed => {
+                // let buffer = trace_with_config(self.config.as_ref().unwrap());
+            }
+            Message::TracePressed => {}
+        }
+
+        Command::none()
+    }
+
+    fn view(&mut self) -> Element<Message> {
+        Column::new()
+            .push(
+                Button::new(&mut self.chooser_button, Text::new("Choose config..."))
+                    .on_press(Message::ChooserPressed),
+            )
+            .into()
     }
 }
 
@@ -47,20 +72,8 @@ fn quit_with_usage() -> ! {
     std::process::exit(1)
 }
 
-fn main() {
-    let mut args = std::env::args();
-    let config = args
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| quit_with_usage());
-    let image = args
-        .next()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| config.with_extension("png"));
-    let UserConfig { params, scene } = UserConfig::from_file(&config).unwrap_or_else(|e| {
-        eprintln!("Error parsing {}: {}", config.display(), e);
-        std::process::exit(1)
-    });
+fn trace_with_config(config: &UserConfig) -> Vec<u8> {
+    let UserConfig { params, scene } = config;
 
     let w = params.resolution.x;
     let h = params.resolution.y;
@@ -72,7 +85,7 @@ fn main() {
         w as f32 / h as f32,
     );
 
-    let buffer = (0..w * h)
+    (0..w * h)
         .into_par_iter()
         .flat_map(|i| {
             let x = i % w;
@@ -97,6 +110,17 @@ fn main() {
                 (color.z.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
             ]
         })
-        .collect::<Vec<_>>();
-    image::save_buffer(&image, &buffer, w, h, image::RGB(8)).unwrap()
+        .collect::<Vec<_>>()
+}
+
+pub fn main() {
+    /*
+    let usr_config = UserConfig::from_file(&config).unwrap_or_else(|e| {
+        eprintln!("Error parsing {}: {}", config.display(), e);
+        std::process::exit(1)
+    });
+    */
+    AppModel::run(Settings::default());
+
+    // image::save_buffer(&image, &buffer, w, h, image::RGB(8)).unwrap()
 }

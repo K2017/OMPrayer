@@ -12,3 +12,4 @@ rand = "*"
 rayon = "*"
 serde = { version = "*", features = ["derive"] }
 toml = "*"
+iced = "0.1.0-beta"

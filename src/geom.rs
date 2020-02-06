@@ -4,6 +4,7 @@ mod mesh;
 mod plane;
 mod scene;
 mod sphere;
+mod tracer;
 
 use serde::Deserialize;
 
@@ -13,6 +14,7 @@ pub use self::mesh::*;
 pub use self::plane::*;
 pub use self::scene::*;
 pub use self::sphere::*;
+pub use self::tracer::*;
 
 use crate::material::Material;
 use crate::ray::Ray;
