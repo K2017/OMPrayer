@@ -9,37 +9,72 @@ mod vec;
 
 use rand::prelude::*;
 use rayon::prelude::*;
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use vec::*;
 
 use config::UserConfig;
 use geom::*;
-use iced::{button, Application, Button, Column, Command, Element, Settings, Text};
+use iced::{
+    button, Align, Application, Button, Column, Command, Container, Element, Image, Length, Row,
+    Settings, Text,
+};
+use nfd::Response;
 use ray::Ray;
+use tempfile::NamedTempFile;
+
+use names::{Generator, Name};
+use tinyfiledialogs::{MessageBoxIcon, YesNo};
+
+extern crate names;
+extern crate nfd;
+extern crate tinyfiledialogs;
 
 #[derive(Default)]
 struct AppModel {
+    result: Vec<u8>,
+    image: Option<iced::image::Handle>,
+    temp_image_path: PathBuf,
+    config: Option<UserConfig>,
+    state: AppState,
+
+    rand_adj: String,
+
     chooser_button: button::State,
     tracer_button: button::State,
+    save_button: button::State,
+    quit_button: button::State,
+    again_button: button::State,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AppState {
+    Ready,
+    Rendering,
+    Done,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self::Ready
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
 enum Message {
-    ChooserPressed,
-    TracePressed,
+    ChooseConfig,
+    Trace,
+    SaveImage,
+    Quit,
+    GoAgain,
 }
 
 impl Application for AppModel {
+    type Executor = iced::executor::Default;
     type Message = Message;
 
     fn new() -> (Self, Command<Message>) {
-        (
-            Self {
-                chooser_button: button::State::new(),
-                tracer_button: button::State::new(),
-            },
-            Command::none(),
-        )
+        (Self::default(), Command::none())
     }
 
     fn title(&self) -> String {
@@ -48,28 +83,131 @@ impl Application for AppModel {
 
     fn update(&mut self, message: Message) -> Command<Message> {
         match message {
-            Message::ChooserPressed => {
-                // let buffer = trace_with_config(self.config.as_ref().unwrap());
+            Message::ChooseConfig => {
+                let response = nfd::open_file_dialog(Some("toml"), None).unwrap_or_else(|e| {
+                    panic!(e);
+                });
+
+                match response {
+                    Response::Okay(path) => {
+                        self.config = Some(UserConfig::from_file(&PathBuf::from(path)).unwrap());
+                    }
+                    _ => {}
+                }
             }
-            Message::TracePressed => {}
+            Message::Trace => {
+                if let Some(config) = self.config.as_ref() {
+                    self.state = AppState::Rendering;
+
+                    self.result = trace_with_config(config);
+
+                    let temp_file = NamedTempFile::new().unwrap().path().with_extension("png");
+                    self.temp_image_path = temp_file;
+                    image::save_buffer(
+                        &self.temp_image_path,
+                        &self.result,
+                        config.params.resolution.x,
+                        config.params.resolution.y,
+                        image::RGB(8),
+                    )
+                    .unwrap();
+                    self.image = Some(iced::image::Handle::from_path(&self.temp_image_path));
+
+                    let mut gen = Generator::default(Name::Plain);
+                    let random_adj_noun = gen.next().unwrap();
+                    let words: Vec<&str> = random_adj_noun.as_str().split("-").collect();
+
+                    self.rand_adj = String::from(words[0]);
+
+                    self.state = AppState::Done;
+                }
+            }
+            Message::SaveImage => {
+                let response = nfd::open_save_dialog(Some("png"), None).unwrap_or_else(|e| {
+                    panic!(e);
+                });
+
+                match response {
+                    Response::Okay(path) => {
+                        let _result = fs::copy(&self.temp_image_path, PathBuf::from(path))
+                            .unwrap_or_else(|e| {
+                                tinyfiledialogs::message_box_ok(
+                                    "Error",
+                                    format!("Image could not be saved: {}", e).as_str(),
+                                    MessageBoxIcon::Error,
+                                );
+                                0
+                            });
+                    }
+                    _ => {}
+                }
+            }
+            Message::Quit => {
+                let choice = tinyfiledialogs::message_box_yes_no(
+                    "Quit",
+                    "Are you sure?",
+                    MessageBoxIcon::Question,
+                    YesNo::No,
+                );
+                match choice {
+                    YesNo::Yes => std::process::exit(0),
+                    _ => {}
+                }
+            }
+            Message::GoAgain => {
+                self.state = AppState::Ready;
+            }
         }
 
         Command::none()
     }
 
     fn view(&mut self) -> Element<Message> {
-        Column::new()
-            .push(
-                Button::new(&mut self.chooser_button, Text::new("Choose config..."))
-                    .on_press(Message::ChooserPressed),
-            )
-            .into()
-    }
-}
+        match self.state {
+            AppState::Ready => Column::new()
+                .push(
+                    Button::new(&mut self.chooser_button, Text::new("Choose config..."))
+                        .on_press(Message::ChooseConfig),
+                )
+                .push(
+                    Button::new(&mut self.tracer_button, Text::new("Trace"))
+                        .on_press(Message::Trace),
+                )
+                .into(),
+            AppState::Rendering => Column::new()
+                .push(
+                    Button::new(&mut self.chooser_button, Text::new("Choose config..."))
+                        .on_press(Message::ChooseConfig),
+                )
+                .into(),
+            AppState::Done => {
+                let label = Text::new(self.rand_adj.to_owned() + "!");
+                let save = Button::new(&mut self.save_button, Text::new("Save Image"))
+                    .on_press(Message::SaveImage);
+                let quit =
+                    Button::new(&mut self.quit_button, Text::new("Quit")).on_press(Message::Quit);
+                let again = Button::new(&mut self.again_button, Text::new("Trace another..."))
+                    .on_press(Message::GoAgain);
+                let bottom_bar = Column::new()
+                    .padding(10)
+                    .push(Row::new().push(save).push(again).push(quit));
+                if let Some(image) = self.image.as_ref() {
+                    let img = Image::new(image.clone());
+                    let img_container = Container::new(img)
+                        .width(Length::Units(600))
+                        .height(Length::Units(600));
+                    return Column::new()
+                        .align_items(Align::Center)
+                        .push(label)
+                        .push(img_container)
+                        .push(bottom_bar)
+                        .into();
+                }
 
-fn quit_with_usage() -> ! {
-    eprintln!("Usage: prayer CONFIG [OUTPUT]");
-    std::process::exit(1)
+                Column::new().push(label).into()
+            }
+        }
+    }
 }
 
 fn trace_with_config(config: &UserConfig) -> Vec<u8> {

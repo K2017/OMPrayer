@@ -69,13 +69,13 @@ fn open_hdr<'a, P: AsRef<Path>>(path: P) -> Result<ColorTexture, Box<dyn Error +
     let buf = decoder
         .read_image_hdr()?
         .into_iter()
-        .map(|pix| glm::make_vec3(&pix.data))
+        .map(|pix| glm::make_vec3(&pix.0))
         .collect();
     Ok(ColorTexture { width, height, buf })
 }
 
 fn rgb_to_float(pix: image::Rgb<u8>) -> Vec3 {
-    let [r, g, b] = pix.data;
+    let [r, g, b] = pix.0;
     let vec = Vec3::new(
         f32::from(r) / 255.0,
         f32::from(g) / 255.0,
