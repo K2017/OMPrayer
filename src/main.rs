@@ -10,14 +10,14 @@ mod vec;
 use rand::prelude::*;
 use rayon::prelude::*;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use vec::*;
 
 use config::UserConfig;
 use geom::*;
 use iced::{
-    button, Align, Application, Button, Column, Command, Container, Element, Image, Length, Row,
-    Settings, Text,
+    futures, Space, Row, button, scrollable, Align, Application, Button, Column, Command, Container, Element, Image,
+    Length, Scrollable, Settings, Text, HorizontalAlignment,
 };
 use nfd::Response;
 use ray::Ray;
@@ -44,7 +44,8 @@ struct AppModel {
     tracer_button: button::State,
     save_button: button::State,
     quit_button: button::State,
-    again_button: button::State,
+
+    scroll_state: scrollable::State,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -60,13 +61,18 @@ impl Default for AppState {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
+enum Error {
+    TraceError
+}
+
+#[derive(Debug, Clone)]
 enum Message {
+    Done(Result<Vec<u8>, Error>),
     ChooseConfig,
     Trace,
     SaveImage,
     Quit,
-    GoAgain,
 }
 
 impl Application for AppModel {
@@ -82,6 +88,7 @@ impl Application for AppModel {
     }
 
     fn update(&mut self, message: Message) -> Command<Message> {
+        let mut command = Command::none();
         match message {
             Message::ChooseConfig => {
                 let response = nfd::open_file_dialog(Some("toml"), None).unwrap_or_else(|e| {
@@ -96,12 +103,14 @@ impl Application for AppModel {
                 }
             }
             Message::Trace => {
-                if let Some(config) = self.config.as_ref() {
-                    self.state = AppState::Rendering;
+                self.state = AppState::Rendering;
 
-                    self.result = trace_with_config(config);
-
-                    let temp_file = NamedTempFile::new().unwrap().path().with_extension("png");
+                command = Command::perform((&self).trace(), Message::Done);
+            }
+            Message::Done(Ok(buffer)) => {
+                let config = self.config.as_ref().unwrap();
+                self.result = buffer;
+                let temp_file = NamedTempFile::new().unwrap().path().with_extension("png");
                     self.temp_image_path = temp_file;
                     image::save_buffer(
                         &self.temp_image_path,
@@ -120,7 +129,13 @@ impl Application for AppModel {
                     self.rand_adj = String::from(words[0]);
 
                     self.state = AppState::Done;
-                }
+            }
+            Message::Done(Err(e)) => {
+                tinyfiledialogs::message_box_ok(
+                    "Configuration",
+                    "Can't start tracing without a config file!",
+                    MessageBoxIcon::Info,
+                );
             }
             Message::SaveImage => {
                 let response = nfd::open_save_dialog(Some("png"), None).unwrap_or_else(|e| {
@@ -154,101 +169,119 @@ impl Application for AppModel {
                     _ => {}
                 }
             }
-            Message::GoAgain => {
-                self.state = AppState::Ready;
-            }
         }
 
-        Command::none()
+        command
     }
 
     fn view(&mut self) -> Element<Message> {
+        let mut main_view = Column::new();
+        let mut scrollable = Scrollable::new(&mut self.scroll_state);
+        let config_button = 
+            button(&mut self.chooser_button, "Choose config...")
+                .on_press(Message::ChooseConfig);
+        let trace_button = 
+            button(&mut self.tracer_button, "Trace")
+                .on_press(Message::Trace);
+        let save_button = 
+            button(&mut self.save_button, "Save Image")
+                .on_press(Message::SaveImage);
+        let quit_button =
+            button(&mut self.quit_button, "Quit")
+                .on_press(Message::Quit);
+
+        let mut menu_bar = Row::new();
+        menu_bar = menu_bar
+            .width(Length::Fill)
+            .push(config_button)
+            .push(trace_button)
+            .push(Space::with_width(Length::Fill))
+            .push(save_button)
+            .push(quit_button);
+
+        main_view = main_view.push(menu_bar);
+
+        let mut container = Column::new();
         match self.state {
-            AppState::Ready => Column::new()
-                .push(
-                    Button::new(&mut self.chooser_button, Text::new("Choose config..."))
-                        .on_press(Message::ChooseConfig),
-                )
-                .push(
-                    Button::new(&mut self.tracer_button, Text::new("Trace"))
-                        .on_press(Message::Trace),
-                )
-                .into(),
-            AppState::Rendering => Column::new()
-                .push(
-                    Button::new(&mut self.chooser_button, Text::new("Choose config..."))
-                        .on_press(Message::ChooseConfig),
-                )
-                .into(),
+            AppState::Ready => { 
+            },
+            AppState::Rendering => {
+            },
             AppState::Done => {
                 let label = Text::new(self.rand_adj.to_owned() + "!");
-                let save = Button::new(&mut self.save_button, Text::new("Save Image"))
-                    .on_press(Message::SaveImage);
-                let quit =
-                    Button::new(&mut self.quit_button, Text::new("Quit")).on_press(Message::Quit);
-                let again = Button::new(&mut self.again_button, Text::new("Trace another..."))
-                    .on_press(Message::GoAgain);
-                let bottom_bar = Column::new()
-                    .padding(10)
-                    .push(Row::new().push(save).push(again).push(quit));
+
                 if let Some(image) = self.image.as_ref() {
                     let img = Image::new(image.clone());
-                    let img_container = Container::new(img)
-                        .width(Length::Units(600))
-                        .height(Length::Units(600));
-                    return Column::new()
-                        .align_items(Align::Center)
+                    let img_container = Container::new(img);
+                    container = container
+                        .align_items(Align::Start)
                         .push(label)
-                        .push(img_container)
-                        .push(bottom_bar)
-                        .into();
+                        .push(img_container);
                 }
-
-                Column::new().push(label).into()
             }
+        };
+
+        scrollable = scrollable.push(container);
+        main_view.push(Container::new(scrollable)
+            .height(Length::Fill)
+            ).into()
+    }
+}
+
+impl AppModel {
+    async fn trace(&mut self) -> Result<Vec<u8>, Error> {
+        if let Some(config) = self.config.as_ref() {
+
+            let UserConfig { params, scene } = config;
+
+            let w = params.resolution.x;
+            let h = params.resolution.y;
+            let camera = camera::Camera::looking_at(
+                glm::vec3(0.0, 2.0, -5.0),
+                glm::vec3(0.0, 0.0, 0.0),
+                glm::vec3(0.0, 1.0, 0.0),
+                80.0,
+                w as f32 / h as f32,
+            );
+
+            let buffer: Vec<u8> = (0..w * h)
+                .into_par_iter()
+                .flat_map(|i| {
+                    let x = i % w;
+                    let y = i / w;
+                    let color = (0..params.samples)
+                        .into_par_iter()
+                        .map(|_| {
+                            let mut rng = rand::thread_rng();
+                            let rand: f32 = rng.gen();
+                            let u = (x as f32 + rand) / w as f32;
+                            let rand: f32 = rng.gen();
+                            let v = (y as f32 + rand) / h as f32;
+                            let ray = camera.ray_at(u, v);
+                            trace(&ray, &scene, params.max_light_bounces)
+                        })
+                        .sum::<Vec3>()
+                        / params.samples as f32;
+                    let color = glm::vec3(1.0, 1.0, 1.0) - glm::exp(&(-color * params.exposure));
+                    vec![
+                        (color.x.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
+                        (color.y.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
+                        (color.z.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
+                    ]
+                })
+                .collect::<Vec<_>>();
+
+            Ok(buffer)
+        } else {
+            Err(Error::TraceError)
         }
     }
 }
 
-fn trace_with_config(config: &UserConfig) -> Vec<u8> {
-    let UserConfig { params, scene } = config;
-
-    let w = params.resolution.x;
-    let h = params.resolution.y;
-    let camera = camera::Camera::looking_at(
-        glm::vec3(0.0, 2.0, -5.0),
-        glm::vec3(0.0, 0.0, 0.0),
-        glm::vec3(0.0, 1.0, 0.0),
-        80.0,
-        w as f32 / h as f32,
-    );
-
-    (0..w * h)
-        .into_par_iter()
-        .flat_map(|i| {
-            let x = i % w;
-            let y = i / w;
-            let color = (0..params.samples)
-                .into_par_iter()
-                .map(|_| {
-                    let mut rng = rand::thread_rng();
-                    let rand: f32 = rng.gen();
-                    let u = (x as f32 + rand) / w as f32;
-                    let rand: f32 = rng.gen();
-                    let v = (y as f32 + rand) / h as f32;
-                    let ray = camera.ray_at(u, v);
-                    trace(&ray, &scene, params.max_light_bounces)
-                })
-                .sum::<Vec3>()
-                / params.samples as f32;
-            let color = glm::vec3(1.0, 1.0, 1.0) - glm::exp(&(-color * params.exposure));
-            vec![
-                (color.x.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
-                (color.y.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
-                (color.z.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
-            ]
-        })
-        .collect::<Vec<_>>()
+fn button<'a, Message>(state: &'a mut button::State, label: &str) -> Button<'a, Message> {
+    Button::new(state, Text::new(label).horizontal_alignment(HorizontalAlignment::Center))
+        .padding(6)
+        .min_width(60)
 }
 
 pub fn main() {
