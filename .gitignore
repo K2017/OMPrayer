@@ -1,6 +1,9 @@
 .cargo/
 .idea/
+target/
 
-/*.png
-/target
+meshes/
+textures/
+*.png
+
 **/*.rs.bk

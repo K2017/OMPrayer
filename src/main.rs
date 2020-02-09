@@ -288,10 +288,22 @@ pub fn main() {
     /*
     let usr_config = UserConfig::from_file(&config).unwrap_or_else(|e| {
         eprintln!("Error parsing {}: {}", config.display(), e);
+=======
+fn main() {
+    let mut args = std::env::args();
+    let config = args
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| quit_with_usage());
+    let image = args
+        .next()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| config.with_extension("png"));
+    let UserConfig { params, scene } = UserConfig::from_file(&config).unwrap_or_else(|e| {
+        eprintln!("Could not parse scene file {}: {}", config.display(), e);
+>>>>>>> 452a1163384e38fef9c56f2de6beeb616d87f09a
         std::process::exit(1)
     });
     */
     AppModel::run(Settings::default());
-
-    // image::save_buffer(&image, &buffer, w, h, image::RGB(8)).unwrap()
 }
