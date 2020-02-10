@@ -16,7 +16,7 @@ use vec::*;
 use config::UserConfig;
 use geom::*;
 use iced::{
-    futures, Space, Row, button, scrollable, Align, Application, Button, Column, Command, Container, Element, Image,
+    Space, Row, button, scrollable, Align, Application, Button, Column, Command, Container, Element, Image,
     Length, Scrollable, Settings, Text, HorizontalAlignment,
 };
 use nfd::Response;
@@ -104,8 +104,9 @@ impl Application for AppModel {
             }
             Message::Trace => {
                 self.state = AppState::Rendering;
-
-                command = Command::perform((&self).trace(), Message::Done);
+                if let Some(config) = self.config.as_ref().cloned() {
+                    command = Command::perform(trace_main(config), Message::Done);
+                }
             }
             Message::Done(Ok(buffer)) => {
                 let config = self.config.as_ref().unwrap();
@@ -228,54 +229,47 @@ impl Application for AppModel {
     }
 }
 
-impl AppModel {
-    async fn trace(&mut self) -> Result<Vec<u8>, Error> {
-        if let Some(config) = self.config.as_ref() {
+async fn trace_main(config: UserConfig) -> Result<Vec<u8>, Error> {
+    let UserConfig { params, scene } = config;
 
-            let UserConfig { params, scene } = config;
+    let w = params.resolution.x;
+    let h = params.resolution.y;
+    let camera = camera::Camera::looking_at(
+        glm::vec3(0.0, 2.0, -5.0),
+        glm::vec3(0.0, 0.0, 0.0),
+        glm::vec3(0.0, 1.0, 0.0),
+        80.0,
+        w as f32 / h as f32,
+    );
 
-            let w = params.resolution.x;
-            let h = params.resolution.y;
-            let camera = camera::Camera::looking_at(
-                glm::vec3(0.0, 2.0, -5.0),
-                glm::vec3(0.0, 0.0, 0.0),
-                glm::vec3(0.0, 1.0, 0.0),
-                80.0,
-                w as f32 / h as f32,
-            );
-
-            let buffer: Vec<u8> = (0..w * h)
+    let buffer: Vec<u8> = (0..w * h)
+        .into_par_iter()
+        .flat_map(|i| {
+            let x = i % w;
+            let y = i / w;
+            let color = (0..params.samples)
                 .into_par_iter()
-                .flat_map(|i| {
-                    let x = i % w;
-                    let y = i / w;
-                    let color = (0..params.samples)
-                        .into_par_iter()
-                        .map(|_| {
-                            let mut rng = rand::thread_rng();
-                            let rand: f32 = rng.gen();
-                            let u = (x as f32 + rand) / w as f32;
-                            let rand: f32 = rng.gen();
-                            let v = (y as f32 + rand) / h as f32;
-                            let ray = camera.ray_at(u, v);
-                            trace(&ray, &scene, params.max_light_bounces)
-                        })
-                        .sum::<Vec3>()
-                        / params.samples as f32;
-                    let color = glm::vec3(1.0, 1.0, 1.0) - glm::exp(&(-color * params.exposure));
-                    vec![
-                        (color.x.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
-                        (color.y.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
-                        (color.z.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
-                    ]
+                .map(|_| {
+                    let mut rng = rand::thread_rng();
+                    let rand: f32 = rng.gen();
+                    let u = (x as f32 + rand) / w as f32;
+                    let rand: f32 = rng.gen();
+                    let v = (y as f32 + rand) / h as f32;
+                    let ray = camera.ray_at(u, v);
+                    trace(&ray, &scene, params.max_light_bounces)
                 })
-                .collect::<Vec<_>>();
+                .sum::<Vec3>()
+                / params.samples as f32;
+            let color = glm::vec3(1.0, 1.0, 1.0) - glm::exp(&(-color * params.exposure));
+            vec![
+                (color.x.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
+                (color.y.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
+                (color.z.max(0.0).min(1.0).powf(1.0 / params.gamma) * 255.99) as u8,
+            ]
+        })
+        .collect::<Vec<_>>();
 
-            Ok(buffer)
-        } else {
-            Err(Error::TraceError)
-        }
-    }
+    Ok(buffer)
 }
 
 fn button<'a, Message>(state: &'a mut button::State, label: &str) -> Button<'a, Message> {

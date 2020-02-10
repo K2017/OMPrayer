@@ -20,6 +20,7 @@ pub struct Triangle {
     verts: [Vertex; 3],
 }
 
+#[derive(Clone)]
 pub struct Mesh {
     tree: KdTree<Triangle>,
 }

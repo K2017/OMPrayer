@@ -9,6 +9,7 @@ use image::{self, GrayImage};
 use crate::Vec2;
 use nalgebra_glm as glm;
 
+#[derive(Clone)]
 pub enum GrayScaleTexture {
     Tex(GrayImage),
     Solid(f32),

@@ -5,6 +5,7 @@ use crate::Ray;
 use super::aabb::*;
 use super::{Geometry, RayHit};
 
+#[derive(Clone)]
 pub enum KdTree<T> {
     Leaf {
         bounds: AABB,

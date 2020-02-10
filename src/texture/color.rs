@@ -12,6 +12,7 @@ use super::Texture;
 use crate::{Vec2, Vec3};
 use nalgebra_glm as glm;
 
+#[derive(Clone)]
 pub struct ColorTexture {
     buf: Vec<Vec3>,
     width: u32,

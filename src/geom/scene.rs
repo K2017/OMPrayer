@@ -4,7 +4,7 @@ use super::*;
 use crate::ray::Ray;
 use crate::texture::ColorTexture;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Scene {
     objects: Vec<Object>,
     pub environment: ColorTexture,

@@ -36,7 +36,7 @@ pub struct RayHit {
     pub uv: Vec2,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(untagged)]
 pub enum GeomType {
     Sphere(Sphere),
@@ -64,7 +64,7 @@ impl Bounds for GeomType {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Object {
     pub geometry: GeomType,
     pub material: Material,

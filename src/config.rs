@@ -8,7 +8,7 @@ use serde::Deserialize;
 use crate::geom::Scene;
 use crate::Vec3;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 #[serde(default)]
 pub struct RenderParams {
     pub resolution: UVec2,
@@ -36,7 +36,7 @@ impl Default for RenderParams {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct UserConfig {
     pub params: RenderParams,
     pub scene: Scene,

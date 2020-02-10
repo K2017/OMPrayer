@@ -6,7 +6,7 @@ use super::*;
 use crate::ray::Ray;
 use crate::Vec3;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Plane {
     pub points: [Vec3; 4],
 }

@@ -27,7 +27,7 @@ fn transform_to_world(vec: &Vec3, norm: &Vec3) -> Vec3 {
     v * vec.x + w * vec.y + u * vec.z
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct Material {
     pub albedo: ColorTexture,
     pub metalness: GrayScaleTexture,
